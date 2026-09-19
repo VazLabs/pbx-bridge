@@ -7,6 +7,10 @@ pub struct BridgeConfig {
     pub rules: Rules,
     #[serde(default)]
     pub contacts: Vec<Contact>,
+    #[serde(default = "default_log_level")]
+    pub log_level: String,
+    #[serde(default)]
+    pub verbose: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -20,6 +24,10 @@ pub struct AsteriskConfig {
 #[derive(Debug, Deserialize, Clone)]
 pub struct TelegramConfig {
     pub session_file: String,
+    pub api_id: i32,
+    pub api_hash: String,
+    pub phone_num: String,
+    pub message_buffer: usize,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -32,6 +40,10 @@ pub struct Rules {
 #[derive(Debug, Deserialize, Clone)]
 pub struct Contact {
     pub name: String,
-    pub telegram_id: i64,
-    pub extension: String,
+    pub telegram_id: String,
+    pub dial_num: u64,
+}
+
+fn default_log_level() -> String {
+    String::from("info")
 }

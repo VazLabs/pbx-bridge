@@ -2,7 +2,7 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
-    #[error("Could not read config file at '{path}': {source}'")]
+    #[error("Could not read config file at '{path}': {source}")]
     Io {
         path: String,
         source: std::io::Error,
