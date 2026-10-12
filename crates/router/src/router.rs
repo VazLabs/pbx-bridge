@@ -33,14 +33,15 @@ mod tests {
         ari_url      = "ws://localhost:8088/ari/events"
         ari_user     = "asterisk"
         ari_password = "secret"
+        ari_app_name = "my_app"
         rtp_port     = 10000
+        audio_format = "slin"
 
         [telegram]
         session_file = "userbot.session"
         api_id = 1234567
         api_hash = "long_hash"
         phone_num = "+11234567890"
-        message_buffer = 500
 
         [rules]
         whitelist_only    = true

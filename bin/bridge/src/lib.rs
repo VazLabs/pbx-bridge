@@ -2,10 +2,8 @@ use std::error::Error;
 
 use config::BridgeConfig;
 // use telegram::Session;
-use tokio::task::LocalSet;
-use tracing::error;
 
-pub async fn bridge_main(config: &BridgeConfig) -> Result<(), Box<dyn Error + Sync + Send>> {
+pub async fn bridge_main(_config: &BridgeConfig) -> Result<(), Box<dyn Error + Sync + Send>> {
     // let (session, _event_rx) = Session::new(config).await?;
     // let _command_tx = session.command_tx();
 

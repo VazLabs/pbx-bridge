@@ -18,7 +18,9 @@ pub struct AsteriskConfig {
     pub ari_url: String,
     pub ari_user: String,
     pub ari_password: String,
+    pub ari_app_name: String,
     pub rtp_port: u16,
+    pub audio_format: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -27,7 +29,6 @@ pub struct TelegramConfig {
     pub api_id: i32,
     pub api_hash: String,
     pub phone_num: String,
-    pub message_buffer: usize,
 }
 
 #[derive(Debug, Deserialize, Clone)]
