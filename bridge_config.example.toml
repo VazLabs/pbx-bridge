@@ -1,0 +1,26 @@
+log_level = "info" # defaults to info
+
+[asterisk]
+ari_url      = "ws://localhost:8088/ari/events"
+ari_user     = "asterisk"
+ari_password = "secret"
+rtp_port     = 10000
+
+[telegram]
+session_file = "userbot.session"
+api_id = 123456
+api_hash = "long_hash"
+phone_num = "+11234567890"
+message_buffer = 500
+
+[rules]
+whitelist_only = true
+default_extension = "101"
+
+[[contacts]]
+name        = "Alice"
+telegram_id = 123456789
+
+[[contacts]]
+name        = "Bob"
+telegram_id = 987654321
