@@ -77,16 +77,11 @@ impl ActiveCall {
         servers: &[RTCServer],
         versions: &[String],
     ) -> Result<(mpsc::Receiver<Vec<u8>>, mpsc::Receiver<bool>)> {
-        match self
-            .call
-            .lock()
-            .await
-            .connect(servers, versions, true)
-            .await
-        {
+        let mut p2p_call = self.call.lock().await;
+        match p2p_call.connect(servers, versions, true).await {
             Ok((sig_rx, conn_rx)) => Ok((sig_rx, conn_rx)),
             Err(e) => {
-                self.call.lock().await.end().await;
+                p2p_call.end().await;
                 Err(e.into())
             }
         }
@@ -94,7 +89,6 @@ impl ActiveCall {
 
     pub async fn activate_audio(
         &mut self,
-        // audio_in_tx: mpsc::Sender<AudioFrame>,
         mut audio_out_rx: mpsc::Receiver<AudioFrame>,
     ) -> Result<()> {
         // Outbound: audio_out_rx → send_external_frame
