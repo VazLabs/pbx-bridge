@@ -1,4 +1,4 @@
-use crate::types::AudioFrame;
+use crate::types::{AudioFrame, CallId, UserId};
 use anyhow::Result;
 use ferogram::tl;
 use ferogram::tl::enums::{PhoneCall, Update};
@@ -20,7 +20,7 @@ const CHANNELS: u8 = 1;
 pub struct ActiveCall {
     call: Arc<Mutex<P2PCall>>,
     client: Client,
-    call_id: i64,
+    call_id: CallId,
     peer: tl::enums::InputPhoneCall,
 }
 
@@ -35,10 +35,10 @@ impl ActiveCall {
     /// Does NOT connect WebRTC yet — call `.connect()` next.
     pub async fn dial(
         client: &Client,
-        user_id: i64,
+        user_id: UserId,
         stream: &mut UpdateStream,
     ) -> Result<(Self, Vec<RTCServer>, Vec<String>)> {
-        let mut call = P2PCall::new(client.clone(), user_id);
+        let mut call = P2PCall::new(client.clone(), user_id.into());
 
         match call.request(false, stream).await {
             Ok((servers, versions)) => {
@@ -56,7 +56,7 @@ impl ActiveCall {
                     Self {
                         call: Arc::new(Mutex::new(call)),
                         client: client.clone(),
-                        call_id,
+                        call_id: CallId::new(call_id),
                         peer,
                     },
                     servers,
@@ -220,7 +220,7 @@ impl ActiveCall {
         match upd.constructor_id {
             0x2661bf09 => {
                 if let Update::PhoneCallSignalingData(sd) = upd.inner {
-                    if sd.phone_call_id == self.call_id {
+                    if sd.phone_call_id == self.call_id.inner() {
                         self.call
                             .lock()
                             .await
@@ -233,7 +233,7 @@ impl ActiveCall {
             0xab0f6b1e => {
                 if let Update::PhoneCall(pc) = upd.inner {
                     if let PhoneCall::Discarded(d) = pc.phone_call {
-                        if d.id == self.call_id {
+                        if d.id == self.call_id.inner() {
                             return Ok(UpdateOutcome::Discarded);
                         }
                     }

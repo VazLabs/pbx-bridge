@@ -23,28 +23,88 @@ pub enum TelegramEvent {
     FatalError(anyhow::Error),
     // A call (inbound or outbound) is connected + audio is live
     CallConnected {
-        user_id: i64,
+        user_id: UserId,
     },
     CallEnded {
-        user_id: i64,
+        user_id: UserId,
         reason: Option<String>,
     },
     IncomingCall {
-        user_id: i64,
-        call_id: i64,
+        user_id: UserId,
+        call_id: CallId,
     },
     Ringing {
-        user_id: i64,
+        user_id: UserId,
     },
     Error(String),
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct UserId(i64);
+
+impl UserId {
+    pub fn new(id: i64) -> Self {
+        Self(id)
+    }
+
+    pub fn inner(&self) -> i64 {
+        self.0
+    }
+}
+
+impl From<i64> for UserId {
+    fn from(value: i64) -> Self {
+        UserId(value)
+    }
+}
+
+impl From<UserId> for i64 {
+    fn from(value: UserId) -> Self {
+        value.0
+    }
+}
+
+impl std::fmt::Display for UserId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct CallId(i64);
+
+impl CallId {
+    pub fn new(id: i64) -> Self {
+        Self(id)
+    }
+
+    pub fn inner(&self) -> i64 {
+        self.0
+    }
+}
+impl From<i64> for CallId {
+    fn from(value: i64) -> Self {
+        CallId(value)
+    }
+}
+
+impl From<CallId> for i64 {
+    fn from(value: CallId) -> Self {
+        value.0
+    }
+}
+
+impl std::fmt::Display for CallId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 // These are the incoming API boundry events, communication should be non-telegram bound
 // including incoming call data
 // these get sent INTO telegram crate
 #[derive(Debug)]
 pub enum TelegramCommand {
-    Dial { user_id: i64 },
+    Dial { user_id: UserId },
     Hangup,
     Shutdown,
 }
@@ -57,18 +117,6 @@ pub struct AudioFrame {
     pub samples: Vec<i16>,
     /// Microsecond timestamp from the source clock.
     pub timestamp_us: u64,
-}
-
-#[derive(Debug, Clone)]
-pub struct UserId(pub i64);
-
-#[derive(Clone)]
-pub(crate) enum CallState {
-    Idle,
-    Incoming(i64),
-    Waiting(i64), // call ID
-    Connecting(i64),
-    Accepted(i64),
 }
 
 /// All the channel endpoints the caller needs to hold onto.

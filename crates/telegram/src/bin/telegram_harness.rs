@@ -44,7 +44,7 @@ async fn local_main(config: &BridgeConfig) -> anyhow::Result<()> {
 
     local.spawn_local(async move {
         if let Err(e) = actor.run().await {
-            eprintln!("[telegram] actor died: {e:#}");
+            error!("[telegram] actor died: {e:#}");
         }
     });
 
@@ -77,7 +77,7 @@ async fn local_main(config: &BridgeConfig) -> anyhow::Result<()> {
                             1 => {
                                 info!("Sending a call request to {:?}", test_user);
                                 command_tx
-                                    .send(telegram::TelegramCommand::Dial { user_id: test_user })
+                                    .send(telegram::TelegramCommand::Dial { user_id: test_user.into() })
                                     .await?;
                             }
                             2 => {

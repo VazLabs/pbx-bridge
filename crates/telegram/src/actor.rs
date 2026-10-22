@@ -3,13 +3,13 @@ use std::io::{self, Write};
 use crate::{
     TelegramHandle,
     call::{ActiveCall, UpdateOutcome},
-    types::{AudioFrame, TelegramCommand, TelegramEvent},
+    types::{AudioFrame, TelegramCommand, TelegramEvent, UserId},
 };
-use anyhow::Result;
+use anyhow::{Result, bail};
 use config::BridgeConfig;
 use ferogram::{Client, SignInError};
 use tokio::sync::mpsc;
-use tracing::{debug, error, info};
+use tracing::{error, info, warn};
 
 pub struct TelegramActor {
     client: Client,
@@ -38,7 +38,7 @@ impl TelegramActor {
 
     /// Consume the actor and run it on the current task.
     /// Call this inside `tokio::spawn`.
-    pub async fn run(self) -> anyhow::Result<()> {
+    pub async fn run(self) -> Result<()> {
         let Self {
             client,
             mut cmd_rx,
@@ -119,36 +119,20 @@ pub fn spawn(client: Client) -> (TelegramHandle, TelegramActor) {
 /// Owns `stream` for its entire duration.
 async fn run_call(
     client: &Client,
-    user_id: i64,
+    user_id: UserId,
     stream: &mut ferogram::UpdateStream,
     cmd_rx: &mut mpsc::Receiver<TelegramCommand>,
     event_tx: &mpsc::Sender<TelegramEvent>,
     audio_in_tx: mpsc::Sender<AudioFrame>,
     audio_out_rx: mpsc::Receiver<AudioFrame>,
 ) -> Result<()> {
-    // ── DIAL: request call parameters, stream is consumed here ───────────
     let (mut active, servers, versions) = ActiveCall::dial(client, user_id, stream).await?;
 
-    // ── CONNECT: establish WebRTC transport ───────────────────────────────
     let (mut sig_out_rx, mut conn_rx) = active.connect(&servers, &versions).await?;
 
     info!("preparing media");
     active.prepare_media(audio_in_tx).await?;
 
-    // ── SIGNALING: stream is consumed here until ICE+DTLS resolves ────────
-    // let connected = tokio::select! {
-    //     result = active.run_signaling(&mut sig_out_rx, &mut conn_rx, stream) => {
-    //         result?
-    //     }
-    //     Some(TelegramCommand::Hangup) | Some(TelegramCommand::Shutdown) = cmd_rx.recv() => {
-    //         active.end().await;
-    //         let _ = event_tx.send(TelegramEvent::CallEnded {
-    //             user_id,
-    //             reason: Some("local hangup".into()),
-    //         }).await;
-    //         return Ok(());
-    //     }
-    // };
     let connected = active
         .run_signaling(&mut sig_out_rx, &mut conn_rx, stream)
         .await?;
@@ -165,7 +149,6 @@ async fn run_call(
         return Ok(());
     }
 
-    // ── CONNECTED: wire up audio, stream is ours again ────────────────────
     let _ = event_tx
         .send(TelegramEvent::CallConnected { user_id })
         .await;
@@ -173,7 +156,6 @@ async fn run_call(
     info!("activating audio");
     active.activate_audio(audio_out_rx).await?;
 
-    // ── ACTIVE: watch for hangup or remote disconnect ─────────────────────
     loop {
         tokio::select! {
             Some(cmd) = cmd_rx.recv() => {
@@ -223,7 +205,7 @@ async fn run_call(
 }
 
 // TODO: add doc comments
-pub async fn login(config: &BridgeConfig) -> Result<(), anyhow::Error> {
+pub async fn login(config: &BridgeConfig) -> Result<()> {
     let (client, _shutdown) = ferogram::Client::builder()
         .api_id(config.telegram.api_id)
         .api_hash(&config.telegram.api_hash)
@@ -242,28 +224,56 @@ pub async fn login(config: &BridgeConfig) -> Result<(), anyhow::Error> {
         }
     };
 
-    let code = capture_from_stdin("Telegram login code: ");
+    let code = capture_nonempty_stdin("Telegram login code: ");
 
     match client.sign_in(&token, &code).await {
         Ok(name) => info!("logged in as {name}"),
         Err(SignInError::PasswordRequired(pw_token)) => {
-            let password = capture_from_stdin("Telegram password: "); // TODO: hide password chars
+            let password = capture_nonempty_stdin("Telegram password: "); // TODO: hide password chars
             client.check_password(*pw_token, password.trim()).await?;
         }
         Err(err) => {
             return Err(err.into());
         }
     }
+
+    const MAX_RETRIES: u32 = 5;
+
+    let mut attempts = 0;
+    loop {
+        match client.save_session().await {
+            Ok(()) => break,
+            Err(e) if attempts >= MAX_RETRIES => {
+                // propagate or panic after exhausting retries
+                error!("operation failed after {MAX_RETRIES} retries: {e}");
+                bail!(e);
+            }
+            Err(e) => {
+                attempts += 1;
+                warn!("attempt {attempts} failed: {e}, retrying...");
+            }
+        }
+    }
+
+    client.disconnect();
     Ok(())
 }
 
-fn capture_from_stdin(prompt: &str) -> String {
+fn capture_from_stdin(prompt: &str) -> Result<String> {
     print!("{}", prompt);
-    io::stdout().flush().expect("Failed to flush stdout");
+    io::stdout().flush()?;
 
     let mut input = String::new();
-    io::stdin()
-        .read_line(&mut input)
-        .expect("Failed to read line");
-    input.trim().to_string()
+    io::stdin().read_line(&mut input)?;
+    Ok(input.trim().to_string())
+}
+
+fn capture_nonempty_stdin(prompt: &str) -> String {
+    loop {
+        match capture_from_stdin(prompt) {
+            Ok(c) if !c.is_empty() => break c,
+            Ok(_) => {}
+            Err(e) => info!("error capturing from stdin: {e}"),
+        }
+    }
 }
