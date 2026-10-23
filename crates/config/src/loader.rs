@@ -1,10 +1,11 @@
-use std::path::Path;
-
 use crate::{BridgeConfig, ConfigError};
+use std::path::Path;
+use tracing::debug;
 
 pub fn load(path: impl AsRef<Path>) -> Result<BridgeConfig, ConfigError> {
     let path = path.as_ref();
 
+    debug!("loading config from path: {:?}", path);
     let contents = std::fs::read_to_string(path).map_err(|source| ConfigError::Io {
         path: path.display().to_string(),
         source,
@@ -39,7 +40,7 @@ fn validate(config: &BridgeConfig) -> Result<(), ConfigError> {
 
     let mut seen_ids = std::collections::HashSet::new();
     for contact in &config.contacts {
-        if !seen_ids.insert(contact.telegram_id) {
+        if !seen_ids.insert(contact.telegram_id.clone()) {
             return Err(ConfigError::Validation(format!(
                 "Duplicate telegram_id {} in contacts",
                 contact.telegram_id
@@ -64,6 +65,10 @@ mod tests {
 
         [telegram]
         session_file = "userbot.session"
+        api_id = 1234567
+        api_hash = "long_hash"
+        phone_num = "+11234567890"
+        message_buffer = 500
 
         [rules]
         whitelist_only    = true
@@ -71,8 +76,8 @@ mod tests {
 
         [[contacts]]
         name        = "Alice"
-        telegram_id = 123456789
-        extension   = "101"
+        telegram_id = "123456789"
+        dial_num    = 1
         "#
     }
 
@@ -103,6 +108,10 @@ mod tests {
 
         [telegram]
         session_file = "userbot.session"
+        api_id = 1234567
+        api_hash = "long_hash"
+        phone_num = "+11234567890"
+        message_buffer = 500
 
         [rules]
         whitelist_only = true
@@ -123,19 +132,23 @@ mod tests {
 
         [telegram]
         session_file = "userbot.session"
+        api_id = 1234567
+        api_hash = "long_hash"
+        phone_num = "+11234567890"
+        message_buffer = 500
 
         [rules]
         whitelist_only = false
 
         [[contacts]]
         name        = "Alice"
-        telegram_id = 123456789
-        extension   = "101"
+        telegram_id = "123456789"
+        dial_num    = 1
 
         [[contacts]]
         name        = "Alice Duplicate"
-        telegram_id = 123456789
-        extension   = "102"
+        telegram_id = "123456789"
+        dial_num    = 1
         "#;
         let config: BridgeConfig = toml::from_str(toml).unwrap();
         let err = validate(&config).unwrap_err();

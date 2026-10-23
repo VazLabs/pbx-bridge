@@ -1,7 +1,10 @@
 [workspace]
 
 members = [
+  "bin/bridge",
   "crates/config",
+  "crates/router",
+  "crates/telegram",
 ]
 
 resolver = "2"
@@ -14,5 +17,6 @@ tokio = {version = "1", features = ["full"]}
 anyhow = "1"
 thiserror = "2"
 tracing = "0.1"
+tracing-subscriber = { version = "0.3" }
 serde = { version = "1", features = ["derive"]}
 toml = "0.8"
