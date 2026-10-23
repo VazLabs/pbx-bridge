@@ -1,8 +1,9 @@
-use bridge::bridge_main;
+use anyhow::Result;
+use bridge::run_connections;
 use clap::{Parser, Subcommand};
+use config::BridgeConfig;
 use telegram::login;
-use tracing::{error, info, level_filters::LevelFilter};
-use tracing_subscriber::{Layer, layer::SubscriberExt, reload, util::SubscriberInitExt};
+use tracing::{error, info};
 
 #[derive(Parser)]
 #[command(name = "bridge")]
@@ -22,12 +23,7 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-    let base_filter_level = LevelFilter::DEBUG;
-    let (filter, reload_handle) = reload::Layer::new(base_filter_level);
-
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer().with_filter(filter))
-        .try_init()?;
+    config::config_tracing().await?;
 
     let args = BinArgs::parse();
 
@@ -38,13 +34,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>
             std::process::exit(1);
         }
     };
-
-    let new_level: LevelFilter = bridge_config.log_level.parse().unwrap_or(LevelFilter::INFO);
-
-    if base_filter_level != new_level {
-        info!("log level changing: {} -> {}", base_filter_level, new_level);
-        reload_handle.modify(|f| *f = new_level)?;
-    }
 
     match args.command.unwrap_or(Commands::RunBridge) {
         Commands::RunBridge => {
@@ -69,5 +58,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>
             };
         }
     }
+    Ok(())
+}
+
+async fn bridge_main(config: &BridgeConfig) -> Result<()> {
+    let (task_handlers, actor_handlers) = run_connections(config).await?;
+
+    let asterisk_client_task = task_handlers.asterisk;
+    let telegram_client_task = task_handlers.telegram;
+
+    let (asterisk_result, tg_result) = tokio::join!(asterisk_client_task, telegram_client_task,);
+
+    asterisk_result??;
+    tg_result?;
     Ok(())
 }

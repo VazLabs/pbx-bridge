@@ -98,7 +98,18 @@ impl TelegramActor {
     }
 }
 
-pub fn spawn(client: Client) -> (TelegramHandle, TelegramActor) {
+pub async fn spawn_client(config: &BridgeConfig) -> Result<(TelegramHandle, TelegramActor)> {
+    let (client, _shutdown) = ferogram::Client::builder()
+        .api_id(config.telegram.api_id)
+        .api_hash(&config.telegram.api_hash)
+        .session(&config.telegram.session_file)
+        .connect()
+        .await?;
+
+    Ok(spawn(client))
+}
+
+fn spawn(client: Client) -> (TelegramHandle, TelegramActor) {
     let (cmd_tx, cmd_rx) = mpsc::channel(32);
     let (event_tx, event_rx) = mpsc::channel(32);
     let (audio_in_tx, audio_in_rx) = mpsc::channel(256);

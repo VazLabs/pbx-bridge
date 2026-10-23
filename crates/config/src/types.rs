@@ -21,6 +21,7 @@ pub struct AsteriskConfig {
     pub ari_app_name: String,
     pub rtp_port: u16,
     pub audio_format: String,
+    pub app_host: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]

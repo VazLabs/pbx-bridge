@@ -72,12 +72,14 @@ impl AsteriskClient {
     pub async fn run(&mut self) -> Result<()> {
         let event_tx = self.event_tx.clone();
         let app_name = self.config.ari_app_name.clone();
+        let app_host = self.config.app_host.clone();
         let audio_format = self.config.audio_format.clone();
         let channel_hash = self.channel_hash.clone();
 
         self.client.on_stasis_start(move |client, event| {
             let event_tx = event_tx.clone();
             let app_name = app_name.clone();
+            let app_host = app_host.clone();
             let audio_format = audio_format.clone();
             let channel_hash = channel_hash.clone();
 
@@ -89,6 +91,7 @@ impl AsteriskClient {
                         stasis_event,
                         client,
                         &app_name,
+                        &app_host,
                         &audio_format,
                         event_tx,
                         channel_hash,
@@ -194,6 +197,7 @@ async fn handle_sip_connection(
     event: StasisStart,
     client: Arc<Client>,
     app_name: &str,
+    app_host: &str,
     audio_format: &str,
     event_tx: Sender<AsteriskEvent>,
     channel_hash: Arc<Mutex<HashMap<ChannelId, ChannelId>>>,
@@ -221,7 +225,7 @@ async fn handle_sip_connection(
     let mut req =
                     // TODO: maybe use a crate to get the proper Lan IP address o maybe DNS it
                     // ExternalMediaRequest::new(app_name, format!("127.0.0.1:{port}"), audio_format); TODO: maybe move pbx to it's own host now
-                    ExternalMediaRequest::new(app_name, format!("192.168.1.131:{port}"), audio_format);
+                    ExternalMediaRequest::new(app_name, format!("{app_host}:{port}"), audio_format);
 
     // TODO add channel ID information somewhere for internal timeout to hang up if call not answered.
     // all the info should be in a call-info struct CallSession or something similar

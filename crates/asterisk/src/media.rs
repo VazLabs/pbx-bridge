@@ -17,7 +17,8 @@ use tokio::{
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-pub const FRAME_BYTES: usize = 320; // 20 ms of slin mono 16-bit
+// TODO: this should be handled depending on audio format chosen by config
+pub const FRAME_BYTES: usize = 640; // 20 ms of slin16 mono 16-bit
 const FRAME_PERIOD: Duration = Duration::from_millis(20);
 const QUEUE_DEPTH: usize = 256;
 
@@ -242,7 +243,7 @@ async fn write_loop(mut wr: OwnedWriteHalf, mut audio_in: mpsc::Receiver<Vec<u8>
 
         if let Err(e) = write_message(
             &mut wr,
-            &AudioSocketMessage::Audio(SampleRate::Hz8000, frame),
+            &AudioSocketMessage::Audio(SampleRate::Hz16000, frame), // TODO: sample rate should be defined by audio fromat config
         )
         .await
         {

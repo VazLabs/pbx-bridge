@@ -23,14 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>
 }
 
 async fn local_main(config: &BridgeConfig) -> anyhow::Result<()> {
-    let (client, _shutdown) = ferogram::Client::builder()
-        .api_id(config.telegram.api_id)
-        .api_hash(&config.telegram.api_hash)
-        .session(&config.telegram.session_file)
-        .connect()
-        .await?;
-
-    let (mut handle, actor) = telegram::spawn(client);
+    let (mut handle, actor) = telegram::spawn_client(config).await?;
 
     // In the proper bridge, use a OS thread to create a runtime specifically for
     // this Actor
