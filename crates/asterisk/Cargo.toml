@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 config = { path = "../config"}
+media = { path = "../media" }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync"]}

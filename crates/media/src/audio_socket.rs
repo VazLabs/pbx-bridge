@@ -17,7 +17,8 @@ use tokio::{
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-pub const FRAME_BYTES: usize = 320; // 20 ms of slin mono 16-bit
+use crate::FRAME_BYTES;
+
 const FRAME_PERIOD: Duration = Duration::from_millis(20);
 const QUEUE_DEPTH: usize = 256;
 
@@ -181,12 +182,13 @@ impl AudioSocketHandle {
     }
 
     pub fn push_audio(&self, frame: Vec<u8>) {
+        // TODO: newType for size, instead of dropping
         if frame.len() != FRAME_BYTES {
-            warn!(bytes = frame.len(), "wrong audio frame size, dropping");
+            debug!(bytes = frame.len(), "wrong audio frame size, dropping");
             return;
         }
         if self.audio_in.try_send(frame).is_err() {
-            debug!("audio queue full, dropping frame");
+            warn!("audio queue full, dropping frame");
         }
     }
 }
@@ -242,7 +244,7 @@ async fn write_loop(mut wr: OwnedWriteHalf, mut audio_in: mpsc::Receiver<Vec<u8>
 
         if let Err(e) = write_message(
             &mut wr,
-            &AudioSocketMessage::Audio(SampleRate::Hz8000, frame),
+            &AudioSocketMessage::Audio(SampleRate::Hz16000, frame), // TODO: sample rate should be defined by audio fromat config
         )
         .await
         {

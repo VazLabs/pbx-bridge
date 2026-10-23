@@ -39,8 +39,7 @@ async fn local_main(config: &BridgeConfig) -> anyhow::Result<()> {
         .iter()
         .find(|c| c.name == user_name)
         .ok_or_else(|| anyhow::anyhow!("{user_name} not found in contacts"))?
-        .telegram_id
-        .parse()?;
+        .telegram_id;
 
     let mut audio_task: Option<(tokio::task::JoinHandle<()>, CancellationToken)> = None;
 
@@ -59,18 +58,14 @@ async fn local_main(config: &BridgeConfig) -> anyhow::Result<()> {
                         }
 
                         info!("Sending a call request to {:?}", test_user);
-                        let (inbound_tx, inbound_rx) = tokio::sync::mpsc::channel(50);
-                        let (outbound_tx, outbound_rx) = tokio::sync::mpsc::channel(50);
-                        let token = CancellationToken::new();
+                        let channels = telegram::prepare_audio_channels();
 
-                        let audio_plane_channels = AudioChannelHandler { rx: inbound_rx, tx: outbound_tx.clone() };
-                        let handle = tokio::spawn(audio_plane(audio_plane_channels, token.clone()));
-                        audio_task = Some((handle, token));
+                        let handle = tokio::spawn(audio_plane(channels.inbound_channels,  channels.cancellation_token.clone()));
+                        audio_task = Some((handle, channels.cancellation_token));
 
-                        let channels = AudioChannelHandler { rx: outbound_rx, tx: inbound_tx };
 
                         command_tx
-                            .send(telegram::TelegramCommand::Dial { user_id: test_user.into(), channels })
+                            .send(telegram::TelegramCommand::Dial { user_id: test_user.into(), channels: channels.outbound_channels })
                             .await?;
                     }
                     2 => {

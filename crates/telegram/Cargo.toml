@@ -4,7 +4,8 @@ version = "0.1.0"
 edition.workspace = true
 
 [dependencies]
-config = { path = "../config"}
+config = { path = "../config" }
+media = { path = "../media" }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync"]}

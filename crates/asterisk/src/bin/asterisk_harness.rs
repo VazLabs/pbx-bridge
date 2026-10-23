@@ -4,8 +4,9 @@ use std::{
 };
 
 use anyhow::Result;
-use asterisk::{AsteriskClient, AsteriskCommand, AudioSocketMessage, ChannelId};
+use asterisk::{AsteriskClient, AsteriskCommand, ChannelId};
 use config::BridgeConfig;
+use media::AudioSocketMessage;
 use tokio::io::AsyncBufReadExt;
 use tracing::{error, info, warn};
 

@@ -1,11 +1,12 @@
-use config::BridgeConfig;
+use config::Contact;
+
+// TODO: change evaluations to use contact list instead of entire config
 
 // given a telegram ID, evaluate if call should be
 // accepted or rejected
 // if accepted, what CID should be displayed
-pub fn evaluate_inbound(telegram_id: &str, config: &BridgeConfig) -> Option<String> {
-    config
-        .contacts
+pub fn evaluate_inbound(telegram_id: i64, contacts: &[Contact]) -> Option<String> {
+    contacts
         .iter()
         .find(|c| c.telegram_id == telegram_id)
         .map(|c| c.name.clone())
@@ -15,98 +16,76 @@ pub fn evaluate_inbound(telegram_id: &str, config: &BridgeConfig) -> Option<Stri
 // allow to continue or hanged up.
 // if continues, what Contact/telegramID does it match
 // to.
-pub fn evaluate_outbound(dialed: u64, config: &BridgeConfig) -> Option<String> {
-    config
-        .contacts
+pub fn evaluate_outbound(dialed: u64, contacts: &[Contact]) -> Option<i64> {
+    contacts
         .iter()
         .find(|c| c.dial_num == dialed)
-        .map(|c| c.telegram_id.clone())
+        .map(|c| c.telegram_id)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn valid_config() -> BridgeConfig {
-        let valid_toml = r#"
-        [asterisk]
-        ari_url      = "ws://localhost:8088/ari/events"
-        ari_user     = "asterisk"
-        ari_password = "secret"
-        ari_app_name = "my_app"
-        rtp_port     = 10000
-        audio_format = "slin"
-
-        [telegram]
-        session_file = "userbot.session"
-        api_id = 1234567
-        api_hash = "long_hash"
-        phone_num = "+11234567890"
-
-        [rules]
-        whitelist_only    = true
-        default_extension = "101"
-
-        [[contacts]]
-        name        = "Alice"
-        telegram_id = "123456789"
-        dial_num = 1
-        "#;
-
-        toml::from_str(valid_toml).unwrap()
+    fn valid_contacts() -> Vec<Contact> {
+        vec![Contact {
+            name: "Alice".to_owned(),
+            telegram_id: 123456789,
+            dial_num: 1,
+        }]
     }
 
     #[test]
     fn inbound_accepts_whitelisted_contact() {
-        let config = valid_config();
-        let valid_id = "123456789";
-        let result = evaluate_inbound(valid_id, &config);
+        let contacts = valid_contacts();
+        let valid_id = 123456789;
+        let result = evaluate_inbound(valid_id, &contacts);
 
         assert_ne!(result, None);
     }
 
     #[test]
     fn inbound_rejects_missing_contact() {
-        let config = valid_config();
-        let valid_id = "987654321";
-        let result = evaluate_inbound(valid_id, &config);
+        let contacts = valid_contacts();
+        let valid_id = 987654321;
+        let result = evaluate_inbound(valid_id, &contacts);
 
         assert_eq!(result, None);
     }
 
     #[test]
     fn inbound_returns_caller_id() {
-        let config = valid_config();
-        let valid_id = "123456789";
-        let result = evaluate_inbound(valid_id, &config);
+        let contacts = valid_contacts();
+        let valid_id = 123456789;
+        let result = evaluate_inbound(valid_id, &contacts);
 
         assert_eq!(result, Some(String::from("Alice")));
     }
 
     #[test]
     fn outbound_accepts_whitelisted_contact() {
-        let config = valid_config();
+        let contacts = valid_contacts();
         let valid_dial_num = 1;
-        let result = evaluate_outbound(valid_dial_num, &config);
+        let result = evaluate_outbound(valid_dial_num, &contacts);
 
         assert_ne!(result, None);
     }
 
     #[test]
     fn outbound_rejects_missing_contact() {
-        let config = valid_config();
+        let contacts = valid_contacts();
         let invalid_id = 90;
-        let result = evaluate_outbound(invalid_id, &config);
+        let result = evaluate_outbound(invalid_id, &contacts);
 
         assert_eq!(result, None);
     }
 
     #[test]
     fn outbound_returns_telegram_user_id() {
-        let config = valid_config();
+        let contacts = valid_contacts();
         let valid_dial_num = 1;
-        let result = evaluate_outbound(valid_dial_num, &config);
+        let result = evaluate_outbound(valid_dial_num, &contacts);
 
-        assert_eq!(result, Some(String::from("123456789")));
+        assert_eq!(result, Some(123456789));
     }
 }

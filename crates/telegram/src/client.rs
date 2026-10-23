@@ -6,9 +6,9 @@ use tokio::{sync::mpsc, task::LocalSet};
 use tracing::{debug, error, info, warn};
 
 use crate::{
-    AudioFrame, TelegramCommand, TelegramEvent,
+    AudioChannelHandler, AudioFrame, TelegramCommand, TelegramEvent,
     call::{ActiveCall, UpdateOutcome},
-    types::UserId,
+    types::{AudioPlaneChannels, UserId},
 };
 
 pub struct TelegramClient {
@@ -289,5 +289,27 @@ fn capture_nonempty_stdin(prompt: &str) -> String {
             Ok(_) => {}
             Err(e) => info!("error capturing from stdin: {e}"),
         }
+    }
+}
+
+pub fn prepare_audio_channels() -> AudioPlaneChannels {
+    let (inbound_tx, inbound_rx) = tokio::sync::mpsc::channel(300);
+    let (outbound_tx, outbound_rx) = tokio::sync::mpsc::channel(300);
+    let cancellation_token = tokio_util::sync::CancellationToken::new();
+
+    let inbound_channels = AudioChannelHandler {
+        rx: inbound_rx,
+        tx: outbound_tx.clone(),
+    };
+
+    let outbound_channels = AudioChannelHandler {
+        rx: outbound_rx,
+        tx: inbound_tx,
+    };
+
+    AudioPlaneChannels {
+        cancellation_token,
+        inbound_channels,
+        outbound_channels,
     }
 }
