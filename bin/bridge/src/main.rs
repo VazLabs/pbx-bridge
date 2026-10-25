@@ -1,9 +1,16 @@
+use std::sync::Arc;
+
 use anyhow::Result;
-use bridge::run_connections;
+use asterisk::{AsteriskCommand, AsteriskHandler, AudioSocketMessage, ChannelId};
+use bridge::{ActorHandlers, run_connections, slin_to_telegram, telegram_to_slin};
 use clap::{Parser, Subcommand};
 use config::BridgeConfig;
-use telegram::login;
-use tracing::{error, info};
+use telegram::{TelegramCommand, TelegramEvent, TelegramHandle, login};
+use tokio::sync::{
+    Mutex,
+    mpsc::{self, Sender},
+};
+use tracing::{error, info, warn};
 
 #[derive(Parser)]
 #[command(name = "bridge")]
@@ -67,8 +74,123 @@ async fn bridge_main(config: &BridgeConfig) -> Result<()> {
     let asterisk_client_task = task_handlers.asterisk;
     let telegram_client_task = task_handlers.telegram;
 
-    let (asterisk_result, tg_result) = tokio::join!(asterisk_client_task, telegram_client_task,);
+    let ActorHandlers { asterisk, telegram } = actor_handlers;
 
+    let AsteriskHandler {
+        cmd_tx: a_cmd_tx,
+        event_rx: mut a_event_rx,
+    } = asterisk;
+
+    let TelegramHandle {
+        cmd_tx: tg_cmd_tx,
+        event_rx: mut tg_event_rx,
+        audio_in_rx: mut tg_audio_in_rx,
+        audio_out_tx: tg_audio_out_tx,
+    } = telegram;
+
+    let mut call_audio_tx: Option<Sender<telegram::AudioFrame>> = None;
+    let client_channel_id: Arc<Mutex<Option<ChannelId>>> = Arc::new(Mutex::new(None));
+
+    loop {
+        tokio::select! {
+            Some(event) = a_event_rx.recv() => {
+                match event {
+                    asterisk::AsteriskEvent::CallRequested { channel_id, call_num, audio_rx, bridge: _ } => {
+                        info!("call requested to user {call_num}");
+                        {
+                            let mut guard = client_channel_id.lock().await;
+                            *guard = Some(channel_id);
+                        }
+
+                        let (once_call_audio_tx, mut once_call_audio_rx) = mpsc::channel(32);
+                        call_audio_tx = Some(once_call_audio_tx);
+
+                        let tg_audio_out_tx = tg_audio_out_tx.clone();
+
+                        tokio::spawn(async move {
+                            let Ok(mut audio_socket) = audio_rx.await else {
+                                warn!("AudioSocket never connected");
+                                return;
+                            };
+                            info!("AudioSocket stream ready, starting media loop");
+
+                            loop {
+                                tokio::select! {
+                                    Some(msg) = audio_socket.next_message() => {
+                                        match msg {
+                                            AudioSocketMessage::StreamId(uuid) => info!(%uuid, "AudioSocket handshake"),
+                                            AudioSocketMessage::Dtmf(c) => info!(%c, "DTMF received"),
+                                            AudioSocketMessage::Terminate | AudioSocketMessage::Error(_) => break,
+                                            AudioSocketMessage::Audio(_, frame) => {
+                                                // TODO: use sampling here
+                                                let _ = tg_audio_out_tx.send(slin_to_telegram(frame)).await;
+                                            },
+                                        }
+                                    }
+                                    result = once_call_audio_rx.recv() => {
+                                        match result {
+                                            Some(frame) => audio_socket.push_audio(telegram_to_slin(frame)),
+                                            None => break,
+                                        }
+
+                                    }
+                                }
+                            }
+                        });
+                        // TODO: map user correctly
+                        tg_cmd_tx.send(telegram::TelegramCommand::Dial { user_id: 1234567890.into() }).await?;
+                    },
+                    asterisk::AsteriskEvent::CallEnded => {
+                        info!("phone hung up, call has ended");
+                        call_audio_tx = None;
+                    },
+                }
+            }
+            Some(frame) = tg_audio_in_rx.recv() => {
+                if let Some(tx) = &call_audio_tx {
+                    let _ = tx.send(frame).await;
+                }
+            }
+            Some(event) = tg_event_rx.recv() => {
+                match event {
+                    TelegramEvent::CallConnected { user_id: _ }=> {
+                        info!("Telegram Call connected");
+
+                        let guard = client_channel_id.lock().await;
+                        match &*guard  {
+                            Some(channel_id) => {
+                                a_cmd_tx.send(AsteriskCommand::AcceptCall(channel_id.clone())).await?;
+                            },
+                            None => error!("Call connected with no asterist channel ID in store"),
+                        }
+                    }
+                    TelegramEvent::CallEnded { reason, .. } => {
+                        info!("[telegram] call ended: {reason:?}");
+                        let guard = client_channel_id.lock().await;
+                        match &*guard  {
+                            Some(channel_id) => {
+                                a_cmd_tx.send(AsteriskCommand::Hangup(channel_id.clone())).await?;
+                            },
+                            None => error!("Call connected with no asterist channel ID in store"),
+                        }
+                        call_audio_tx = None;
+                        break;
+                    }
+                    _ => {} // TODO: more events
+                }
+            }
+
+            _ = tokio::signal::ctrl_c() => {
+                warn!("SIGINT received, shutting down");
+                tg_cmd_tx.send(TelegramCommand::Shutdown).await?;
+                a_cmd_tx.send(AsteriskCommand::Shutdown).await?;
+                break;
+            }
+
+        }
+    }
+
+    let (asterisk_result, tg_result) = tokio::join!(asterisk_client_task, telegram_client_task,);
     asterisk_result??;
     tg_result?;
     Ok(())

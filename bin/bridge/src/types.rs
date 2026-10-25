@@ -8,8 +8,8 @@ pub struct ActorTaskHandlers {
 }
 
 pub struct ActorHandlers {
-    asterisk: AsteriskHandler,
-    telegram: TelegramHandle,
+    pub asterisk: AsteriskHandler,
+    pub telegram: TelegramHandle,
 }
 
 impl ActorHandlers {
