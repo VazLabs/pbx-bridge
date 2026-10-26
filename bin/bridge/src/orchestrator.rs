@@ -1,15 +1,14 @@
-use std::thread;
+use std::{thread, time::Duration};
 
 use anyhow::Result;
-use asterisk::{AsteriskClient, AudioSocketHandle, AudioSocketMessage};
+use asterisk::AsteriskClient;
 use config::BridgeConfig;
+use media::{AudioSocketHandle, AudioSocketMessage, JitterBuffer};
 use telegram::AudioFrame;
+use tokio::time::{MissedTickBehavior, interval};
 use tracing::{error, info, warn};
 
-use crate::{
-    slin_to_telegram, telegram_to_slin,
-    types::{ActorHandlers, ActorTaskHandlers},
-};
+use crate::types::{ActorHandlers, ActorTaskHandlers};
 
 pub async fn run_connections(config: &BridgeConfig) -> Result<(ActorTaskHandlers, ActorHandlers)> {
     let (tg_handler, tg_actor) = telegram::spawn_client(config).await?;
@@ -69,6 +68,11 @@ pub async fn handle_asterisk_outgoing(
     };
     info!("AudioSocket stream ready, starting media loop");
 
+    let mut from_tg_jb = JitterBuffer::new(20, 200, 20);
+    let mut from_asterisk_jb = JitterBuffer::new(40, 200, 10);
+    let mut ticker = interval(Duration::from_millis(10));
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
     loop {
         tokio::select! {
             Some(msg) = audio_socket.next_message() => {
@@ -76,15 +80,24 @@ pub async fn handle_asterisk_outgoing(
                     AudioSocketMessage::StreamId(uuid) => info!(%uuid, "AudioSocket handshake"),
                     AudioSocketMessage::Dtmf(c) => info!(%c, "DTMF received"),
                     AudioSocketMessage::Terminate | AudioSocketMessage::Error(_) => break,
-                    AudioSocketMessage::Audio(_, frame) => {
-                        // TODO: use sampling here
-                        let _ = tg_audio_out_tx.send(slin_to_telegram(frame)).await;
-                    },
+                    AudioSocketMessage::Audio(_, frame) => from_asterisk_jb.push_bytes(&frame),
                 }
+            }
+            _ = ticker.tick() => {
+                let chunk = from_asterisk_jb.pop_chunk_or_silence();
+                let _ = tg_audio_out_tx.send(AudioFrame {
+                    samples: chunk,
+                    timestamp_us: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_micros() as u64,
+                }).await;
             }
             result = once_call_audio_rx.recv() => {
                 match result {
-                    Some(frame) => audio_socket.push_audio(telegram_to_slin(frame)),
+                    Some(frame) => {
+                        from_tg_jb.on_samples(&frame.samples, |frame| audio_socket.push_audio(media::samples_to_le_bytes(&frame)));
+                    },
                     None => break,
                 }
 

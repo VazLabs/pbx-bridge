@@ -16,7 +16,7 @@ Connection direction is from "phone" to outside world, outbound is considered As
 [] correctly close audiosockets on hangup
   [] hangup from local (harness/bridge)
   [] hangup from remote (telegram)
-[] use ip of process machine for externalMedia (maybe env var)
+[] use ip of process machine for externalMedia (maybe env var) / maybe just DNS
 [] add stability to call if getting error from channel creation (not in stasisApp)
 
 ### Asterisk Harness
@@ -45,6 +45,8 @@ Connection direction is from "phone" to outside world, outbound is considered As
 [x] development harness binary to mirror bridge like behavior but have direct
    way to send messages into channels
 [x] get all control and audio channels from telegram Handle
+[] allow for known users to "register" to recieve calls from client/user by sending a specific msg
+
 ## Bridge binary
 
 [] CLI command to login and create a session (a one tiime code is needed)

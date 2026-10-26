@@ -23,7 +23,7 @@ use tokio::sync::{
 use tracing::{debug, info, warn};
 
 use crate::{
-    ChannelId, start_audiosocket_listener,
+    ChannelId,
     types::{AsteriskCommand, AsteriskEvent, ExternalMediaId},
 };
 
@@ -219,7 +219,7 @@ async fn handle_sip_connection(
 
     client.channels().ring(&channel_id).await?;
 
-    let (port, audio_rx) = start_audiosocket_listener().await?;
+    let (port, audio_rx) = media::start_audiosocket_listener().await?;
     info!("AudioSocket listener ready on port {port}");
 
     let mut req =

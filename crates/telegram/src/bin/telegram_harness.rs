@@ -120,7 +120,7 @@ async fn local_main(config: &BridgeConfig) -> anyhow::Result<()> {
 }
 
 fn generate_sine_frames(freq: f32, duration_secs: f32) -> Vec<AudioFrame> {
-    let sample_rate = 48_000u32;
+    let sample_rate = media::SAMPLE_RATE;
     let total_samples = (sample_rate as f32 * duration_secs) as usize;
     let frame_size = 480; // 10ms at 48kHz
 

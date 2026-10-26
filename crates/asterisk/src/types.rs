@@ -1,10 +1,9 @@
 use std::fmt;
 
 use asterisk_ari::apis::bridges::models::Bridge;
+use media::AudioSocketHandle;
 use tokio::sync::oneshot;
 use uuid::Uuid;
-
-use crate::AudioSocketHandle;
 
 #[derive(Debug)]
 pub enum AsteriskEvent {

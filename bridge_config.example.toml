@@ -6,11 +6,11 @@ ari_user      = "asterisk"
 ari_password  = "secret"
 ari_app_name  = "telegram_bridge"
 rtp_port      = 10000
-audio_format  = "slin"
+audio_format  = "slin16"
 app_host      = "localhost"
 
 [telegram]
-session_file = "userbot.session"
+session_file = "someuser.session"
 api_id = 123456
 api_hash = "long_hash"
 phone_num = "+11234567890"

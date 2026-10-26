@@ -89,7 +89,7 @@ async fn bridge_main(config: &BridgeConfig) -> Result<()> {
     } = telegram;
 
     let mut call_audio_tx: Option<Sender<telegram::AudioFrame>> = None;
-    let client_channel_id: Arc<Mutex<Option<ChannelId>>> = Arc::new(Mutex::new(None));
+    let client_channel_id: Arc<Mutex<Option<ChannelId>>> = Arc::new(Mutex::new(None)); // change to regular mutex
 
     loop {
         tokio::select! {
@@ -127,13 +127,20 @@ async fn bridge_main(config: &BridgeConfig) -> Result<()> {
                     },
                     asterisk::AsteriskEvent::CallEnded => {
                         info!("phone hung up, call has ended");
+                        tg_cmd_tx.send(telegram::TelegramCommand::Hangup).await?;
                         call_audio_tx = None;
                     },
                 }
             }
-            Some(frame) = tg_audio_in_rx.recv() => {
+            Some(frame) = tg_audio_in_rx.recv() => { // TODO: audio should not be here
                 if let Some(tx) = &call_audio_tx {
-                    let _ = tx.send(frame).await;
+                    match tx.send(frame).await {
+                        Ok(_) => {},
+                        Err(e) => {
+                            warn!("unexpected channel closed while sending tg audio: {e}");
+                            call_audio_tx = None;
+                        },
+                    }
                 }
             }
             Some(event) = tg_event_rx.recv() => {
@@ -159,7 +166,6 @@ async fn bridge_main(config: &BridgeConfig) -> Result<()> {
                             None => error!("Call connected with no asterist channel ID in store"),
                         }
                         call_audio_tx = None;
-                        break;
                     }
                     _ => {} // TODO: more events
                 }
@@ -167,8 +173,20 @@ async fn bridge_main(config: &BridgeConfig) -> Result<()> {
 
             _ = tokio::signal::ctrl_c() => {
                 warn!("SIGINT received, shutting down");
-                tg_cmd_tx.send(TelegramCommand::Shutdown).await?;
-                a_cmd_tx.send(AsteriskCommand::Shutdown).await?;
+                match tg_cmd_tx.send(TelegramCommand::Shutdown).await {
+                    Ok(_) => {},
+                    Err(e) => {
+                        error!("tg_cmd_tx channel closed");
+                        anyhow::bail!(e);
+                    },
+                };
+                match a_cmd_tx.send(AsteriskCommand::Shutdown).await {
+                    Ok(_) => {},
+                    Err(e) => {
+                        error!("a_cmd_tx channel closed");
+                        anyhow::bail!(e);
+                    },
+                };
                 break;
             }
 

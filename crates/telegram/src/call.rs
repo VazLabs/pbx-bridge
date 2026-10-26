@@ -4,6 +4,7 @@ use ferogram::tl;
 use ferogram::tl::enums::{PhoneCall, Update};
 use ferogram::update::RawUpdate;
 use ferogram::{Client, UpdateStream};
+use media::SAMPLE_RATE;
 use ntgcalls::VideoRotation;
 use std::sync::Arc;
 use tgcalls::{
@@ -14,7 +15,6 @@ use tokio::sync::{Mutex, mpsc};
 use tracing::{debug, error, trace, warn};
 
 /// Sample rate and channel count must match what ntgcalls expects.
-const SAMPLE_RATE: u32 = 48_000;
 const CHANNELS: u8 = 1;
 
 pub struct ActiveCall {

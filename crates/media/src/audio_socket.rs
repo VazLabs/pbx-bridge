@@ -17,8 +17,8 @@ use tokio::{
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-// TODO: this should be handled depending on audio format chosen by config
-pub const FRAME_BYTES: usize = 640; // 20 ms of slin16 mono 16-bit
+use crate::FRAME_BYTES;
+
 const FRAME_PERIOD: Duration = Duration::from_millis(20);
 const QUEUE_DEPTH: usize = 256;
 
@@ -182,12 +182,13 @@ impl AudioSocketHandle {
     }
 
     pub fn push_audio(&self, frame: Vec<u8>) {
+        // TODO: newType for size, instead of dropping
         if frame.len() != FRAME_BYTES {
-            warn!(bytes = frame.len(), "wrong audio frame size, dropping");
+            debug!(bytes = frame.len(), "wrong audio frame size, dropping");
             return;
         }
         if self.audio_in.try_send(frame).is_err() {
-            debug!("audio queue full, dropping frame");
+            warn!("audio queue full, dropping frame");
         }
     }
 }
