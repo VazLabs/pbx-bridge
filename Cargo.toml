@@ -2,6 +2,7 @@
 
 members = [
   "bin/bridge",
+  "crates/asterisk",
   "crates/config",
   "crates/router",
   "crates/telegram",

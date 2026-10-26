@@ -12,5 +12,5 @@ WORKDIR /app
 
 COPY . .
 
-RUN cargo build --bin telegram_harness
+RUN cargo build
 

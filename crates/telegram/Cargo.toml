@@ -9,8 +9,7 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync"]}
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["env-filter"]}
-tgcalls = { git = "https://github.com/Atixx/tgcalls", branch = "update-P2PCall"}
+tgcalls = { git = "https://github.com/Atixx/tgcalls", rev = "e12d090"}
 ferogram  = { version = "0.6.5", features = ["sqlite-session"] }
 rusqlite = "0.40"
 libc = "0.2"

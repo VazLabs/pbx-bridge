@@ -5,16 +5,10 @@ use tokio::{
     time::{Duration, sleep},
 };
 use tracing::{debug, error, info, trace};
-use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-    let filter = tracing_subscriber::filter::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("debug"));
-
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .try_init()?;
+    config::config_tracing().await?;
 
     let bridge_config = match config::load("bridge_config.toml") {
         Ok(config) => config,
