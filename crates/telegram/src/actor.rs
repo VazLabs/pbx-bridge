@@ -83,7 +83,10 @@ impl TelegramActor {
                             // getting the None Variant for `audio_in_tx.take()`
                             // stream is ours again — back to idle
                         }
-                        TelegramCommand::Shutdown => break,
+                        TelegramCommand::Shutdown => {
+                            info!("shutdown command received");
+                            break
+                        },
                         // Hangup with no active call: ignore
                         TelegramCommand::Hangup => {}
                     }

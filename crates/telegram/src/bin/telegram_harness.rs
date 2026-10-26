@@ -50,8 +50,7 @@ async fn local_main(config: &BridgeConfig) -> anyhow::Result<()> {
                 .iter()
                 .find(|c| c.name == user_name)
                 .ok_or_else(|| anyhow::anyhow!("{user_name} not found in contacts"))?
-                .telegram_id
-                .parse()?;
+                .telegram_id;
 
             loop {
                 tokio::select! {

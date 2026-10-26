@@ -42,7 +42,7 @@ pub struct Rules {
 #[derive(Debug, Deserialize, Clone)]
 pub struct Contact {
     pub name: String,
-    pub telegram_id: String,
+    pub telegram_id: i64,
     pub dial_num: u64,
 }
 

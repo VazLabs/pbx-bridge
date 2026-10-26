@@ -1,12 +1,13 @@
 log_level = "info" # defaults to info
 
 [asterisk]
-ari_url  = "http://localhost:8088"
+ari_url       = "http://localhost:8088"
 ari_user      = "asterisk"
 ari_password  = "secret"
-ari_app_name = "telegram_bridge"
+ari_app_name  = "telegram_bridge"
 rtp_port      = 10000
-audio_format = "slin"
+audio_format  = "slin"
+app_host      = "localhost"
 
 [telegram]
 session_file = "userbot.session"

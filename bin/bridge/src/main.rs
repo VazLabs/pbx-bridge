@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use asterisk::{AsteriskCommand, AsteriskHandler, AudioSocketMessage, ChannelId};
-use bridge::{ActorHandlers, run_connections, slin_to_telegram, telegram_to_slin};
+use asterisk::{AsteriskCommand, AsteriskHandler, ChannelId};
+use bridge::{ActorHandlers, handle_asterisk_outgoing, run_connections};
 use clap::{Parser, Subcommand};
 use config::BridgeConfig;
 use telegram::{TelegramCommand, TelegramEvent, TelegramHandle, login};
@@ -97,48 +97,33 @@ async fn bridge_main(config: &BridgeConfig) -> Result<()> {
                 match event {
                     asterisk::AsteriskEvent::CallRequested { channel_id, call_num, audio_rx, bridge: _ } => {
                         info!("call requested to user {call_num}");
+
+                        let tg_contact: i64 = match router::evaluate_outbound(call_num as u64, config) {
+                            Some(c) => c,
+                            None => {
+                                warn!("number {call_num} is not a contact");
+                                // TODO: give bad user Tone or sound then hangup
+                                continue;
+                            },
+                        };
+
                         {
                             let mut guard = client_channel_id.lock().await;
                             *guard = Some(channel_id);
                         }
 
-                        let (once_call_audio_tx, mut once_call_audio_rx) = mpsc::channel(32);
+                        let (once_call_audio_tx, once_call_audio_rx) = mpsc::channel(32);
                         call_audio_tx = Some(once_call_audio_tx);
 
                         let tg_audio_out_tx = tg_audio_out_tx.clone();
 
                         tokio::spawn(async move {
-                            let Ok(mut audio_socket) = audio_rx.await else {
-                                warn!("AudioSocket never connected");
-                                return;
-                            };
-                            info!("AudioSocket stream ready, starting media loop");
-
-                            loop {
-                                tokio::select! {
-                                    Some(msg) = audio_socket.next_message() => {
-                                        match msg {
-                                            AudioSocketMessage::StreamId(uuid) => info!(%uuid, "AudioSocket handshake"),
-                                            AudioSocketMessage::Dtmf(c) => info!(%c, "DTMF received"),
-                                            AudioSocketMessage::Terminate | AudioSocketMessage::Error(_) => break,
-                                            AudioSocketMessage::Audio(_, frame) => {
-                                                // TODO: use sampling here
-                                                let _ = tg_audio_out_tx.send(slin_to_telegram(frame)).await;
-                                            },
-                                        }
-                                    }
-                                    result = once_call_audio_rx.recv() => {
-                                        match result {
-                                            Some(frame) => audio_socket.push_audio(telegram_to_slin(frame)),
-                                            None => break,
-                                        }
-
-                                    }
-                                }
+                            if let Err(e) = handle_asterisk_outgoing(audio_rx, tg_audio_out_tx, once_call_audio_rx).await {
+                                error!("asterisk outgoing task error: {e}");
                             }
                         });
-                        // TODO: map user correctly
-                        tg_cmd_tx.send(telegram::TelegramCommand::Dial { user_id: 1234567890.into() }).await?;
+
+                        tg_cmd_tx.send(telegram::TelegramCommand::Dial { user_id: tg_contact.into() }).await?;
                     },
                     asterisk::AsteriskEvent::CallEnded => {
                         info!("phone hung up, call has ended");

@@ -1,11 +1,15 @@
 use std::thread;
 
 use anyhow::Result;
-use asterisk::AsteriskClient;
+use asterisk::{AsteriskClient, AudioSocketHandle, AudioSocketMessage};
 use config::BridgeConfig;
-use tracing::error;
+use telegram::AudioFrame;
+use tracing::{error, info, warn};
 
-use crate::types::{ActorHandlers, ActorTaskHandlers};
+use crate::{
+    slin_to_telegram, telegram_to_slin,
+    types::{ActorHandlers, ActorTaskHandlers},
+};
 
 pub async fn run_connections(config: &BridgeConfig) -> Result<(ActorTaskHandlers, ActorHandlers)> {
     let (tg_handler, tg_actor) = telegram::spawn_client(config).await?;
@@ -52,4 +56,41 @@ pub async fn run_connections(config: &BridgeConfig) -> Result<(ActorTaskHandlers
     let actor_handlers = ActorHandlers::new(asterisk_handler, tg_handler);
 
     Ok((task_handlers, actor_handlers))
+}
+
+pub async fn handle_asterisk_outgoing(
+    audio_rx: tokio::sync::oneshot::Receiver<AudioSocketHandle>,
+    tg_audio_out_tx: tokio::sync::mpsc::Sender<AudioFrame>,
+    mut once_call_audio_rx: tokio::sync::mpsc::Receiver<AudioFrame>,
+) -> Result<()> {
+    let Ok(mut audio_socket) = audio_rx.await else {
+        warn!("AudioSocket never connected");
+        return Ok(());
+    };
+    info!("AudioSocket stream ready, starting media loop");
+
+    loop {
+        tokio::select! {
+            Some(msg) = audio_socket.next_message() => {
+                match msg {
+                    AudioSocketMessage::StreamId(uuid) => info!(%uuid, "AudioSocket handshake"),
+                    AudioSocketMessage::Dtmf(c) => info!(%c, "DTMF received"),
+                    AudioSocketMessage::Terminate | AudioSocketMessage::Error(_) => break,
+                    AudioSocketMessage::Audio(_, frame) => {
+                        // TODO: use sampling here
+                        let _ = tg_audio_out_tx.send(slin_to_telegram(frame)).await;
+                    },
+                }
+            }
+            result = once_call_audio_rx.recv() => {
+                match result {
+                    Some(frame) => audio_socket.push_audio(telegram_to_slin(frame)),
+                    None => break,
+                }
+
+            }
+        }
+    }
+
+    Ok(())
 }

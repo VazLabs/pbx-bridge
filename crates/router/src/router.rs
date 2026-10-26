@@ -1,9 +1,11 @@
 use config::BridgeConfig;
 
+// TODO: change evaluations to use contact list instead of entire config
+
 // given a telegram ID, evaluate if call should be
 // accepted or rejected
 // if accepted, what CID should be displayed
-pub fn evaluate_inbound(telegram_id: &str, config: &BridgeConfig) -> Option<String> {
+pub fn evaluate_inbound(telegram_id: i64, config: &BridgeConfig) -> Option<String> {
     config
         .contacts
         .iter()
@@ -15,12 +17,12 @@ pub fn evaluate_inbound(telegram_id: &str, config: &BridgeConfig) -> Option<Stri
 // allow to continue or hanged up.
 // if continues, what Contact/telegramID does it match
 // to.
-pub fn evaluate_outbound(dialed: u64, config: &BridgeConfig) -> Option<String> {
+pub fn evaluate_outbound(dialed: u64, config: &BridgeConfig) -> Option<i64> {
     config
         .contacts
         .iter()
         .find(|c| c.dial_num == dialed)
-        .map(|c| c.telegram_id.clone())
+        .map(|c| c.telegram_id)
 }
 
 #[cfg(test)]
@@ -36,6 +38,7 @@ mod tests {
         ari_app_name = "my_app"
         rtp_port     = 10000
         audio_format = "slin"
+        app_host     = "localhost"
 
         [telegram]
         session_file = "userbot.session"
@@ -49,7 +52,7 @@ mod tests {
 
         [[contacts]]
         name        = "Alice"
-        telegram_id = "123456789"
+        telegram_id = 123456789
         dial_num = 1
         "#;
 
@@ -59,7 +62,7 @@ mod tests {
     #[test]
     fn inbound_accepts_whitelisted_contact() {
         let config = valid_config();
-        let valid_id = "123456789";
+        let valid_id = 123456789;
         let result = evaluate_inbound(valid_id, &config);
 
         assert_ne!(result, None);
@@ -68,7 +71,7 @@ mod tests {
     #[test]
     fn inbound_rejects_missing_contact() {
         let config = valid_config();
-        let valid_id = "987654321";
+        let valid_id = 987654321;
         let result = evaluate_inbound(valid_id, &config);
 
         assert_eq!(result, None);
@@ -77,7 +80,7 @@ mod tests {
     #[test]
     fn inbound_returns_caller_id() {
         let config = valid_config();
-        let valid_id = "123456789";
+        let valid_id = 123456789;
         let result = evaluate_inbound(valid_id, &config);
 
         assert_eq!(result, Some(String::from("Alice")));
@@ -107,6 +110,6 @@ mod tests {
         let valid_dial_num = 1;
         let result = evaluate_outbound(valid_dial_num, &config);
 
-        assert_eq!(result, Some(String::from("123456789")));
+        assert_eq!(result, Some(123456789));
     }
 }

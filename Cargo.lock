@@ -196,6 +196,7 @@ dependencies = [
  "asterisk",
  "clap",
  "config",
+ "router",
  "telegram",
  "tokio",
  "tracing",
