@@ -1,25 +1,24 @@
-use std::{collections::VecDeque, sync::Arc};
+use std::{
+    collections::VecDeque,
+    sync::{Arc, Mutex},
+};
 
 use anyhow::Result;
 use asterisk::{AsteriskClient, AsteriskCommand, AudioSocketMessage, ChannelId};
 use config::BridgeConfig;
-use tokio::{io::AsyncBufReadExt, sync::Mutex};
+use tokio::io::AsyncBufReadExt;
 use tracing::{error, info, warn};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     config::config_tracing().await?;
 
-    let bridge_config = match config::load("bridge_config.toml") {
-        Ok(config) => config,
-        Err(e) => {
-            error!(error = %e, "failed to load bridge config on startup");
-            std::process::exit(1);
-        }
-    };
+    let bridge_config = config::load("bridge_config.toml").unwrap_or_else(|e| {
+        error!(error = %e, "failed to load bridge config on startup");
+        std::process::exit(1);
+    });
 
     harness_main(&bridge_config).await?;
-    // example(&bridge_config).await?;
     Ok(())
 }
 
@@ -43,27 +42,32 @@ async fn harness_main(config: &BridgeConfig) -> anyhow::Result<()> {
     let stdin = tokio::io::stdin();
     let mut reader = tokio::io::BufReader::new(stdin).lines();
 
+    const UNUSED_CMD: u8 = 99;
+    const SHUTDOWN_CMD: u8 = 0;
+    const ACCEPT_CALL_CMD: u8 = 1;
+    const HANGUP_CALL_CMD: u8 = 2;
+
     loop {
         tokio::select! {
             Ok(Some(line)) = reader.next_line() => {
-                match line.trim().parse().unwrap_or(99u8) {
-                    0 => {
+                match line.trim().parse().unwrap_or(UNUSED_CMD) {
+                    SHUTDOWN_CMD => {
                         cmd_tx.send(AsteriskCommand::Shutdown).await?;
                         break;
                     }
-                    1 => {
+                    ACCEPT_CALL_CMD => {
                         // the bridge will need to set everything up, and give the OK to answer the call
                         // all audio sockets need to be ready _before_ we send the Answer API call
-                        let guard = harness_channel_id.lock().await;
-                        match &*guard {
+                        let chan_id = (*harness_channel_id.lock().expect("other call panicked")).to_owned();
+                        match chan_id {
                             Some(id) => cmd_tx.send(AsteriskCommand::AcceptCall(id.clone())).await?,
                             None => error!("called Asnwer call with not channel ID in store"),
                         };
 
                     }
-                    2 => {
-                        let guard = harness_channel_id.lock().await;
-                        match &*guard {
+                    HANGUP_CALL_CMD => {
+                        let chan_id = (*harness_channel_id.lock().expect("other call panicked")).to_owned();
+                        match chan_id {
                             Some(id) => cmd_tx.send(AsteriskCommand::Hangup(id.clone())).await?,
                             None => warn!("called Hangup with no channel id in store"),
                         }
@@ -87,8 +91,18 @@ async fn harness_main(config: &BridgeConfig) -> anyhow::Result<()> {
                             info!("AudioSocket stream ready, starting media loop");
 
                             {
-                                let mut guard = channel_id_ref.lock().await;
-                                *guard = Some(channel_id);
+                                let mut guard = channel_id_ref.lock().unwrap_or_else(|e| {
+                                    error!("another call panicked, taking call ownership");
+                                    e.into_inner()
+                                });
+
+                                match &*guard {
+                                    Some(existing_id) => {
+                                        error!("ongoing call on channel: {existing_id}, dropping AudioSocket");
+                                        return;
+                                    },
+                                    None => *guard = Some(channel_id),
+                                }
                             }
 
                             const ECHO_DELAY_FRAMES: usize = 50;
@@ -108,8 +122,19 @@ async fn harness_main(config: &BridgeConfig) -> anyhow::Result<()> {
                                 }
                             }
 
-                            let mut guard = channel_id_ref.lock().await;
-                            *guard = None;
+                            {
+                                let mut guard = channel_id_ref.lock().unwrap_or_else(|e| {
+                                    warn!("another thread accessed channel ID and panicked while we were on a call");
+                                    e.into_inner()
+                                });
+
+                                match &*guard {
+                                    Some(_) => *guard = None,
+                                    None => {
+                                        warn!("another thread stole our channel ID");
+                                    },
+                                }
+                            }
                         });
 
                     },
