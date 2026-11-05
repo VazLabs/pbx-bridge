@@ -1,6 +1,7 @@
 use crate::{BridgeConfig, ConfigError};
 use std::path::Path;
 use tracing::debug;
+use tracing_subscriber::EnvFilter;
 
 pub fn load(path: impl AsRef<Path>) -> Result<BridgeConfig, ConfigError> {
     let path = path.as_ref();
@@ -22,6 +23,12 @@ fn validate(config: &BridgeConfig) -> Result<(), ConfigError> {
     if config.asterisk.ari_url.is_empty() {
         return Err(ConfigError::Validation(
             "asterisk.ari_url must not be empty".into(),
+        ));
+    }
+
+    if config.asterisk.ari_app_name.is_empty() {
+        return Err(ConfigError::Validation(
+            "asterisk.ari_app_name must not be empty".into(),
         ));
     }
 
@@ -51,6 +58,26 @@ fn validate(config: &BridgeConfig) -> Result<(), ConfigError> {
     Ok(())
 }
 
+// TODO: add builder pattern to allow for better configuration
+// setup default tracing
+pub async fn config_tracing() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+    let log_level = match load("bridge_config.toml") {
+        Ok(config) => config.log_level,
+        Err(e) => {
+            tracing::error!(error = %e, "failed to load bridge config, defaulting to debug");
+            String::from("debug")
+        }
+    };
+
+    let filter = tracing_subscriber::filter::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new(log_level));
+
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .try_init()?;
+
+    Ok(())
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -61,14 +88,15 @@ mod tests {
         ari_url      = "ws://localhost:8088/ari/events"
         ari_user     = "asterisk"
         ari_password = "secret"
+        ari_app_name = "my_app"
         rtp_port     = 10000
+        audio_format = "slin"
 
         [telegram]
         session_file = "userbot.session"
         api_id = 1234567
         api_hash = "long_hash"
         phone_num = "+11234567890"
-        message_buffer = 500
 
         [rules]
         whitelist_only    = true
@@ -104,14 +132,15 @@ mod tests {
         ari_url      = "ws://localhost:8088/ari/events"
         ari_user     = "asterisk"
         ari_password = "secret"
+        ari_app_name = "my_app"
         rtp_port     = 10000
+        audio_format = "slin"
 
         [telegram]
         session_file = "userbot.session"
         api_id = 1234567
         api_hash = "long_hash"
         phone_num = "+11234567890"
-        message_buffer = 500
 
         [rules]
         whitelist_only = true
@@ -128,14 +157,15 @@ mod tests {
         ari_url      = "ws://localhost:8088/ari/events"
         ari_user     = "asterisk"
         ari_password = "secret"
+        ari_app_name = "my_app"
         rtp_port     = 10000
+        audio_format = "slin"
 
         [telegram]
         session_file = "userbot.session"
         api_id = 1234567
         api_hash = "long_hash"
         phone_num = "+11234567890"
-        message_buffer = 500
 
         [rules]
         whitelist_only = false
