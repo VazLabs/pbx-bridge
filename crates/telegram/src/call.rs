@@ -90,32 +90,54 @@ impl ActiveCall {
     pub async fn activate_audio(
         &mut self,
         mut audio_out_rx: mpsc::Receiver<AudioFrame>,
+        cancellation_token: tokio_util::sync::CancellationToken,
     ) -> Result<()> {
         // Outbound: audio_out_rx → send_external_frame
         let call = Arc::clone(&self.call);
         tokio::task::spawn_local(async move {
             debug!("outbound pump: started");
-            while let Some(frame) = audio_out_rx.recv().await {
-                let data = samples_to_bytes(&frame.samples);
-                let frame_data = FrameData {
-                    absolute_capture_timestamp_ms: (frame.timestamp_us / 1000) as i64,
-                    rotation: VideoRotation::VideoRotation0,
-                    width: 0,
-                    height: 0,
-                };
-                let result = {
-                    let mut call = call.lock().await;
-                    call.send_external_frame(StreamDevice::Microphone, &data, &frame_data)
-                        .await
-                };
-                match result {
-                    Ok(()) => trace!("outbound pump: sent {} bytes", data.len()),
-                    Err(e) => {
-                        error!("outbound pump: send_external_frame failed: {e}");
+
+            loop {
+                tokio::select! {
+                    biased;
+
+                    _ = cancellation_token.cancelled() => {
+                        debug!("outbound pump: cancelled");
                         break;
                     }
+
+                    Some(frame) = audio_out_rx.recv() => {
+                        let data = samples_to_bytes(&frame.samples);
+                        let frame_data = FrameData {
+                            absolute_capture_timestamp_ms: (frame.timestamp_us / 1000) as i64,
+                            rotation: VideoRotation::VideoRotation0,
+                            width: 0,
+                            height: 0,
+                        };
+
+                        let result = {
+                            let mut call = call.lock().await;
+                            call.send_external_frame(StreamDevice::Microphone, &data, &frame_data)
+                                .await
+                        };
+
+                        match result {
+                            Ok(()) => trace!("outbound pump: sent {} bytes", data.len()),
+                            Err(e) => {
+                                error!("outbound pump: send_external_frame failed: {e}");
+                                break;
+                            }
+                        }
+                    }
+
+                    else => {
+                        debug!("outbound pump: channel closed");
+                        break;
+                    }
+
                 }
             }
+
             debug!("outbound pump: exiting");
         });
 
@@ -213,24 +235,23 @@ impl ActiveCall {
     pub async fn handle_update(&self, upd: RawUpdate) -> Result<UpdateOutcome> {
         match upd.constructor_id {
             0x2661bf09 => {
-                if let Update::PhoneCallSignalingData(sd) = upd.inner {
-                    if sd.phone_call_id == self.call_id.inner() {
-                        self.call
-                            .lock()
-                            .await
-                            .receive_signaling_data(&sd.data)
-                            .await?;
-                        return Ok(UpdateOutcome::SignalingDelivered);
-                    }
+                if let Update::PhoneCallSignalingData(sd) = upd.inner
+                    && sd.phone_call_id == self.call_id.inner()
+                {
+                    self.call
+                        .lock()
+                        .await
+                        .receive_signaling_data(&sd.data)
+                        .await?;
+                    return Ok(UpdateOutcome::SignalingDelivered);
                 }
             }
             0xab0f6b1e => {
-                if let Update::PhoneCall(pc) = upd.inner {
-                    if let PhoneCall::Discarded(d) = pc.phone_call {
-                        if d.id == self.call_id.inner() {
-                            return Ok(UpdateOutcome::Discarded);
-                        }
-                    }
+                if let Update::PhoneCall(pc) = upd.inner
+                    && let PhoneCall::Discarded(d) = pc.phone_call
+                    && d.id == self.call_id.inner()
+                {
+                    return Ok(UpdateOutcome::Discarded);
                 }
             }
             _ => {}
@@ -247,7 +268,9 @@ fn samples_to_bytes(samples: &[i16]) -> Vec<u8> {
 
 fn bytes_to_samples(bytes: &[u8]) -> Vec<i16> {
     bytes
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|c| i16::from_le_bytes([c[0], c[1]]))
         .collect()
 }

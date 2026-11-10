@@ -8,6 +8,7 @@ config = { path = "../config"}
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync"]}
+tokio-util = { workspace = true }
 tracing = { workspace = true }
 tgcalls = { git = "https://github.com/Atixx/tgcalls", rev = "e12d090"}
 ferogram  = { version = "0.6.5", features = ["sqlite-session"] }

@@ -1,9 +1,10 @@
 use config::BridgeConfig;
-use telegram::{AudioFrame, TelegramCommand, TelegramEvent};
+use telegram::{AudioChannelHandler, AudioFrame, TelegramCommand, TelegramEvent};
 use tokio::{
     io::AsyncBufReadExt,
     time::{Duration, sleep},
 };
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, trace};
 
 #[tokio::main]
@@ -23,22 +24,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>
 }
 
 async fn local_main(config: &BridgeConfig) -> anyhow::Result<()> {
-    let (client, _shutdown) = ferogram::Client::builder()
-        .api_id(config.telegram.api_id)
-        .api_hash(&config.telegram.api_hash)
-        .session(&config.telegram.session_file)
-        .connect()
-        .await?;
-
-    let (mut handle, actor) = telegram::spawn(client);
+    let (client, mut handler) = telegram::TelegramClient::init(&config.telegram).await?;
 
     // In the proper bridge, use a OS thread to create a runtime specifically for
     // this Actor
     let local = tokio::task::LocalSet::new();
 
     local.spawn_local(async move {
-        if let Err(e) = actor.run().await {
-            error!("[telegram] actor died: {e:#}");
+        if let Err(e) = client.run().await {
+            error!("[telegram] client died: {e:#}");
         }
     });
 
@@ -46,8 +40,9 @@ async fn local_main(config: &BridgeConfig) -> anyhow::Result<()> {
     // but only touches handle which is pure Send channels
     local
         .run_until(async move {
-            let command_tx = handle.cmd_tx.clone();
+            let command_tx = handler.cmd_tx.clone();
             info!("Commands: 0=shutdown, 1=dial test user, 2=hangup active call, 3=send test tone");
+
 
             let stdin = tokio::io::stdin();
             let mut reader = tokio::io::BufReader::new(stdin).lines();
@@ -60,6 +55,8 @@ async fn local_main(config: &BridgeConfig) -> anyhow::Result<()> {
                 .telegram_id
                 .parse()?;
 
+            let mut audio_task: Option<(tokio::task::JoinHandle<()>, CancellationToken)> = None;
+
             loop {
                 tokio::select! {
                     Ok(Some(line)) = reader.next_line() => {
@@ -69,34 +66,35 @@ async fn local_main(config: &BridgeConfig) -> anyhow::Result<()> {
                                 break;
                             }
                             1 => {
+                                if audio_task.is_some() {
+                                    error!("attempting to dial while another call is in progress, aborting this attempt");
+                                    continue;
+                                }
+
                                 info!("Sending a call request to {:?}", test_user);
+                                let (inbound_tx, inbound_rx) = tokio::sync::mpsc::channel(50);
+                                let (outbound_tx, outbound_rx) = tokio::sync::mpsc::channel(50);
+                                let token = CancellationToken::new();
+
+                                let audio_plane_channels = AudioChannelHandler { rx: inbound_rx, tx: outbound_tx.clone() };
+                                let handle = tokio::spawn(audio_plane(audio_plane_channels, token.clone()));
+                                audio_task = Some((handle, token));
+
+                                let channels = AudioChannelHandler { rx: outbound_rx, tx: inbound_tx };
+
                                 command_tx
-                                    .send(telegram::TelegramCommand::Dial { user_id: test_user.into() })
+                                    .send(telegram::TelegramCommand::Dial { user_id: test_user.into(), channels })
                                     .await?;
                             }
                             2 => {
                                 info!("Hanging up call");
                                 command_tx.send(telegram::TelegramCommand::Hangup).await?;
                             }
-                            3 => {
-                                info!("sending test tone");
-                                let tx = handle.audio_out_tx.clone();
-                                tokio::spawn(async move {
-                                    let frames = generate_sine_frames(440.0, 5.0);
-                                    for frame in frames {
-                                        if tx.send(frame).await.is_err() {
-                                            error!{"error sending frame"};
-                                            break;
-                                        }
-                                        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-                                    }
-                                });
-                            }
                             _ => info!("unknown command"),
                         }
                     }
 
-                    Some(event) = handle.event_rx.recv() => {
+                    Some(event) = handler.event_rx.recv() => {
                         debug!("[event] {event:?}");
                         match event {
                             TelegramEvent::CallConnected { user_id }=> {
@@ -104,18 +102,10 @@ async fn local_main(config: &BridgeConfig) -> anyhow::Result<()> {
                             }
                             TelegramEvent::CallEnded { reason, .. } => {
                                 info!("call ended: {reason:?}");
+                                stop_audio_task(&mut audio_task).await;
                             }
                             _ => {}
                         }
-                    }
-
-                    Some(frame) = handle.audio_in_rx.recv() => {
-                        trace!("[audio] got {} samples @ {}µs",
-                            frame.samples.len(), frame.timestamp_us);
-
-                        let tx = handle.audio_out_tx.clone();
-                        echo_audio_back(tx, frame, 1);
-
                     }
                 }
             }
@@ -125,29 +115,6 @@ async fn local_main(config: &BridgeConfig) -> anyhow::Result<()> {
         .await?;
 
     Ok(())
-}
-
-fn generate_sine_frames(freq: f32, duration_secs: f32) -> Vec<AudioFrame> {
-    let sample_rate = 48_000u32;
-    let total_samples = (sample_rate as f32 * duration_secs) as usize;
-    let frame_size = 480; // 10ms at 48kHz
-
-    (0..total_samples)
-        .step_by(frame_size)
-        .enumerate()
-        .map(|(i, start)| {
-            let samples: Vec<i16> = (start..start + frame_size)
-                .map(|n| {
-                    let t = n as f32 / sample_rate as f32;
-                    (f32::sin(2.0 * std::f32::consts::PI * freq * t) * i16::MAX as f32) as i16
-                })
-                .collect();
-            AudioFrame {
-                samples,
-                timestamp_us: (i as u64 * 10_000), // 10ms per frame in µs
-            }
-        })
-        .collect()
 }
 
 fn echo_audio_back(
@@ -161,4 +128,34 @@ fn echo_audio_back(
             trace!("error sending echo frame");
         }
     });
+}
+
+async fn audio_plane(audio: AudioChannelHandler, token: CancellationToken) {
+    let AudioChannelHandler { mut rx, tx } = audio;
+    loop {
+        tokio::select! {
+            biased;
+
+            _ = token.cancelled() => {
+                info!("audio plane shutting down");
+                break;
+            }
+
+            Some(frame) = rx.recv() => {
+                trace!("[audio] got {} samples @ {}µs",
+                    frame.samples.len(), frame.timestamp_us);
+
+                echo_audio_back(tx.clone(), frame, 1);
+            }
+        }
+    }
+}
+
+async fn stop_audio_task(
+    audio_task: &mut Option<(tokio::task::JoinHandle<()>, CancellationToken)>,
+) {
+    if let Some((handle, token)) = audio_task.take() {
+        token.cancel();
+        let _ = handle.await;
+    }
 }
