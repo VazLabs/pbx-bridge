@@ -104,7 +104,10 @@ impl std::fmt::Display for CallId {
 // these get sent INTO telegram crate
 #[derive(Debug)]
 pub enum TelegramCommand {
-    Dial { user_id: UserId },
+    Dial {
+        user_id: UserId,
+        channels: AudioChannelHandler,
+    },
     Hangup,
     Shutdown,
 }
@@ -119,14 +122,8 @@ pub struct AudioFrame {
     pub timestamp_us: u64,
 }
 
-/// All the channel endpoints the caller needs to hold onto.
-pub struct TelegramHandle {
-    /// Send commands into the telegram actor.
-    pub cmd_tx: mpsc::Sender<TelegramCommand>,
-    /// Receive state-change events from the telegram actor.
-    pub event_rx: mpsc::Receiver<TelegramEvent>,
-    /// Receive inbound audio frames from the active call.
-    pub audio_in_rx: mpsc::Receiver<AudioFrame>,
-    /// Send outbound audio frames into the active call.
-    pub audio_out_tx: mpsc::Sender<AudioFrame>,
+#[derive(Debug)]
+pub struct AudioChannelHandler {
+    pub rx: mpsc::Receiver<AudioFrame>,
+    pub tx: mpsc::Sender<AudioFrame>,
 }

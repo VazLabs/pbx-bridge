@@ -1,7 +1,7 @@
-mod actor;
 mod call;
+mod client;
 
 pub mod types;
 
-pub use actor::{login, spawn};
-pub use types::{AudioFrame, TelegramCommand, TelegramEvent, TelegramHandle};
+pub use client::{TelegramClient, login};
+pub use types::{AudioChannelHandler, AudioFrame, TelegramCommand, TelegramEvent};

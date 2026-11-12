@@ -60,7 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>
 
         Commands::Login => {
             info!("attempting login as {}", bridge_config.telegram.phone_num);
-            match login(&bridge_config).await {
+            match login(&bridge_config.telegram).await {
                 Ok(_) => info!("logged in successful"),
                 Err(err) => {
                     error!("error: {err}");
