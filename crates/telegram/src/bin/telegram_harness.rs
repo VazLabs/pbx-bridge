@@ -26,93 +26,76 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>
 async fn local_main(config: &BridgeConfig) -> anyhow::Result<()> {
     let (client, mut handler) = telegram::TelegramClient::init(&config.telegram).await?;
 
-    // In the proper bridge, use a OS thread to create a runtime specifically for
-    // this Actor
-    let local = tokio::task::LocalSet::new();
+    client.spawn_local_client();
 
-    local.spawn_local(async move {
-        if let Err(e) = client.run().await {
-            error!("[telegram] client died: {e:#}");
-        }
-    });
+    let command_tx = handler.cmd_tx.clone();
+    info!("Commands: 0=shutdown, 1=dial test user, 2=hangup active call, 3=send test tone");
 
-    // harness loop runs inside the LocalSet so it can share the thread,
-    // but only touches handle which is pure Send channels
-    local
-        .run_until(async move {
-            let command_tx = handler.cmd_tx.clone();
-            info!("Commands: 0=shutdown, 1=dial test user, 2=hangup active call, 3=send test tone");
+    let stdin = tokio::io::stdin();
+    let mut reader = tokio::io::BufReader::new(stdin).lines();
+    let user_name = "TestUser";
+    let test_user: i64 = config
+        .contacts
+        .iter()
+        .find(|c| c.name == user_name)
+        .ok_or_else(|| anyhow::anyhow!("{user_name} not found in contacts"))?
+        .telegram_id
+        .parse()?;
 
+    let mut audio_task: Option<(tokio::task::JoinHandle<()>, CancellationToken)> = None;
 
-            let stdin = tokio::io::stdin();
-            let mut reader = tokio::io::BufReader::new(stdin).lines();
-            let user_name = "TestUser";
-            let test_user: i64 = config
-                .contacts
-                .iter()
-                .find(|c| c.name == user_name)
-                .ok_or_else(|| anyhow::anyhow!("{user_name} not found in contacts"))?
-                .telegram_id
-                .parse()?;
-
-            let mut audio_task: Option<(tokio::task::JoinHandle<()>, CancellationToken)> = None;
-
-            loop {
-                tokio::select! {
-                    Ok(Some(line)) = reader.next_line() => {
-                        match line.trim().parse().unwrap_or(99u8) {
-                            0 => {
-                                command_tx.send(TelegramCommand::Shutdown).await?;
-                                break;
-                            }
-                            1 => {
-                                if audio_task.is_some() {
-                                    error!("attempting to dial while another call is in progress, aborting this attempt");
-                                    continue;
-                                }
-
-                                info!("Sending a call request to {:?}", test_user);
-                                let (inbound_tx, inbound_rx) = tokio::sync::mpsc::channel(50);
-                                let (outbound_tx, outbound_rx) = tokio::sync::mpsc::channel(50);
-                                let token = CancellationToken::new();
-
-                                let audio_plane_channels = AudioChannelHandler { rx: inbound_rx, tx: outbound_tx.clone() };
-                                let handle = tokio::spawn(audio_plane(audio_plane_channels, token.clone()));
-                                audio_task = Some((handle, token));
-
-                                let channels = AudioChannelHandler { rx: outbound_rx, tx: inbound_tx };
-
-                                command_tx
-                                    .send(telegram::TelegramCommand::Dial { user_id: test_user.into(), channels })
-                                    .await?;
-                            }
-                            2 => {
-                                info!("Hanging up call");
-                                command_tx.send(telegram::TelegramCommand::Hangup).await?;
-                            }
-                            _ => info!("unknown command"),
-                        }
+    loop {
+        tokio::select! {
+            Ok(Some(line)) = reader.next_line() => {
+                match line.trim().parse().unwrap_or(99u8) {
+                    0 => {
+                        command_tx.send(TelegramCommand::Shutdown).await?;
+                        break;
                     }
-
-                    Some(event) = handler.event_rx.recv() => {
-                        debug!("[event] {event:?}");
-                        match event {
-                            TelegramEvent::CallConnected { user_id }=> {
-                                info!("audio channels are live, user_id: {user_id} — start pumping frames");
-                            }
-                            TelegramEvent::CallEnded { reason, .. } => {
-                                info!("call ended: {reason:?}");
-                                stop_audio_task(&mut audio_task).await;
-                            }
-                            _ => {}
+                    1 => {
+                        if audio_task.is_some() {
+                            error!("attempting to dial while another call is in progress, aborting this attempt");
+                            continue;
                         }
+
+                        info!("Sending a call request to {:?}", test_user);
+                        let (inbound_tx, inbound_rx) = tokio::sync::mpsc::channel(50);
+                        let (outbound_tx, outbound_rx) = tokio::sync::mpsc::channel(50);
+                        let token = CancellationToken::new();
+
+                        let audio_plane_channels = AudioChannelHandler { rx: inbound_rx, tx: outbound_tx.clone() };
+                        let handle = tokio::spawn(audio_plane(audio_plane_channels, token.clone()));
+                        audio_task = Some((handle, token));
+
+                        let channels = AudioChannelHandler { rx: outbound_rx, tx: inbound_tx };
+
+                        command_tx
+                            .send(telegram::TelegramCommand::Dial { user_id: test_user.into(), channels })
+                            .await?;
                     }
+                    2 => {
+                        info!("Hanging up call");
+                        command_tx.send(telegram::TelegramCommand::Hangup).await?;
+                    }
+                    _ => info!("unknown command"),
                 }
             }
 
-            Ok::<_, anyhow::Error>(())
-        })
-        .await?;
+            Some(event) = handler.event_rx.recv() => {
+                debug!("[event] {event:?}");
+                match event {
+                    TelegramEvent::CallConnected { user_id }=> {
+                        info!("audio channels are live, user_id: {user_id} — start pumping frames");
+                    }
+                    TelegramEvent::CallEnded { reason, .. } => {
+                        info!("call ended: {reason:?}");
+                        stop_audio_task(&mut audio_task).await;
+                    }
+                    _ => {} // listen on errors to make sure the audio task stops and we can create a new call
+                }
+            }
+        }
+    }
 
     Ok(())
 }

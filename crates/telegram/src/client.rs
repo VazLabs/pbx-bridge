@@ -2,7 +2,7 @@ use std::io::Write;
 
 use anyhow::{Result, bail};
 use config::TelegramConfig;
-use tokio::sync::mpsc;
+use tokio::{sync::mpsc, task::LocalSet};
 use tracing::{debug, error, info, warn};
 
 use crate::{
@@ -94,6 +94,24 @@ impl TelegramClient {
         }
 
         Ok(())
+    }
+
+    pub fn spawn_local_client(self) -> std::thread::JoinHandle<()> {
+        std::thread::spawn(|| {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("failed to build Telegram runtime"); // TODO: handle panic
+
+            let local = LocalSet::new();
+            local.spawn_local(async move {
+                if let Err(e) = self.run().await {
+                    error!("[telegram] client has died: {e}");
+                }
+            });
+
+            rt.block_on(local)
+        })
     }
 }
 
