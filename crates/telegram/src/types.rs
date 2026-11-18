@@ -127,3 +127,10 @@ pub struct AudioChannelHandler {
     pub rx: mpsc::Receiver<AudioFrame>,
     pub tx: mpsc::Sender<AudioFrame>,
 }
+
+#[derive(Debug)]
+pub struct AudioPlaneChannels {
+    pub cancellation_token: tokio_util::sync::CancellationToken,
+    pub inbound_channels: AudioChannelHandler,
+    pub outbound_channels: AudioChannelHandler,
+}

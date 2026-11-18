@@ -47,7 +47,7 @@ fn validate(config: &BridgeConfig) -> Result<(), ConfigError> {
 
     let mut seen_ids = std::collections::HashSet::new();
     for contact in &config.contacts {
-        if !seen_ids.insert(contact.telegram_id.clone()) {
+        if !seen_ids.insert(contact.telegram_id) {
             return Err(ConfigError::Validation(format!(
                 "Duplicate telegram_id {} in contacts",
                 contact.telegram_id
@@ -91,6 +91,7 @@ mod tests {
         ari_app_name = "my_app"
         rtp_port     = 10000
         audio_format = "slin"
+        app_host     = "localhost"
 
         [telegram]
         session_file = "userbot.session"
@@ -104,7 +105,7 @@ mod tests {
 
         [[contacts]]
         name        = "Alice"
-        telegram_id = "123456789"
+        telegram_id = 123456789
         dial_num    = 1
         "#
     }
@@ -135,6 +136,7 @@ mod tests {
         ari_app_name = "my_app"
         rtp_port     = 10000
         audio_format = "slin"
+        app_host     = "localhost"
 
         [telegram]
         session_file = "userbot.session"
@@ -160,6 +162,7 @@ mod tests {
         ari_app_name = "my_app"
         rtp_port     = 10000
         audio_format = "slin"
+        app_host     = "localhost"
 
         [telegram]
         session_file = "userbot.session"
@@ -172,12 +175,12 @@ mod tests {
 
         [[contacts]]
         name        = "Alice"
-        telegram_id = "123456789"
+        telegram_id = 123456789
         dial_num    = 1
 
         [[contacts]]
         name        = "Alice Duplicate"
-        telegram_id = "123456789"
+        telegram_id = 123456789
         dial_num    = 1
         "#;
         let config: BridgeConfig = toml::from_str(toml).unwrap();
